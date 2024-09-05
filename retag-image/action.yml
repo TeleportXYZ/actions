@@ -3,12 +3,21 @@ description: |
   Retags a Docker image according to a Git tag, assuming an image was already
   pushed to ECR tagged with the Git commit hash.
 
-  Requires these permissions for AWS credentials to work via OIDC:
+  Expects the repository to be checked out with full history for the tag.
+  This can be accomplished with the following checkout step before calling
+  this action:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: "refs/tags/${{ inputs.tag }}"
+
+  Requires these job permissions for AWS credentials to work via OIDC:
     permissions:
       id-token: write
       contents: read
 
-  Requires these commands to be present on the runner (if custom):
+  Requires these commands to be present on the runner (already present on
+  GitHub-hosted runners):
     - aws
     - skopeo
 
@@ -57,14 +66,17 @@ outputs:
     value: ${{ steps.check_release_tag.outputs.release_tag }}
 
 runs:
-  using: composite
-  env:
-    registry_host: ${{ inputs.aws_account_id }}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com
+  using: "composite"
   steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0 # necessary to fetch ancestor commits
-        ref: "refs/tags/${{ inputs.tag }}"
+    - id: set_registry_host
+      env:
+        aws_account_id: ${{ inputs.aws_account_id }}
+        aws_region: ${{ inputs.aws_region }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        registry_host="${aws_account_id}.dkr.ecr.${aws_region}.amazonaws.com"
+        echo "registry_host=${registry_host}" >> "$GITHUB_OUTPUT"
     - name: Check for release tag
       id: check_release_tag
       env:
@@ -81,6 +93,7 @@ runs:
       id: set_image_name
       env:
         image_repository: ${{ inputs.image_repository }}
+        registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
       run: |
         if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
         set -euo pipefail
@@ -126,6 +139,7 @@ runs:
     - name: Login to ECR
       env:
         AWS_REGION: ${{ inputs.aws_region }}
+        registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
       run: |
         if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
         set -euo pipefail
