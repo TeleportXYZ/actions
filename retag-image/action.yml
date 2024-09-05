@@ -1,0 +1,145 @@
+name: Retag Image
+description: |
+  Retags a Docker image according to a Git tag, assuming an image was already
+  pushed to ECR tagged with the Git commit hash.
+
+  Requires these permissions for AWS credentials to work via OIDC:
+    permissions:
+      id-token: write
+      contents: read
+
+  Requires these commands to be present on the runner (if custom):
+    - aws
+    - skopeo
+
+inputs:
+  aws_account_id:
+    description: AWS account ID hosting the ECR repository
+    required: true
+    type: string
+  aws_region:
+    description: AWS region hosting the ECR repository
+    required: true
+    type: string
+  image_repository:
+    description: name of the image repository (image name excluding registry)
+    required: true
+    type: string
+  paths:
+    description: paths and path globs to examine to find the most recent commit, one per line
+    required: true
+    type: string
+  push:
+    default: true
+    description: whether to push the new image tag to ECR; if false, the image tag will only be inspected
+    required: false
+    type: boolean
+  role_to_assume:
+    description: ARN of the AWS IAM role to assume via OIDC
+    required: true
+    type: string
+  runs_on:
+    default: 'ubuntu-latest'
+    description: GitHub Actions runner to use
+    required: false
+    type: string
+  tag:
+    description: Git tag to use as image tag
+    required: true
+    type: string
+
+outputs:
+  image_name:
+    value: ${{ steps.set_image_name.outputs.image_name }}
+  image_tag:
+    value: ${{ inputs.tag }}
+  release_tag:
+    value: ${{ steps.check_release_tag.outputs.release_tag }}
+
+runs:
+  using: composite
+  env:
+    registry_host: ${{ inputs.aws_account_id }}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # necessary to fetch ancestor commits
+        ref: "refs/tags/${{ inputs.tag }}"
+    - name: Check for release tag
+      id: check_release_tag
+      env:
+        tag: ${{ inputs.tag }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        release_tag=false
+        if [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          release_tag=true
+        fi
+        echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+    - name: Set image name
+      id: set_image_name
+      env:
+        image_repository: ${{ inputs.image_repository }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        image_name="${registry_host}/${image_repository}"
+        echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
+    - name: Find latest commit
+      id: find_latest_commit
+      env:
+        paths: ${{ inputs.paths }}
+        tag: ${{ inputs.tag }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        set -f # disables globbing after variable expansion
+        IFS=$'\n'
+        commit_hash=$(git log --pretty=format:%H --max-count=1 "refs/tags/${tag}" -- ${paths})
+        unset IFS
+        if [[ -z $commit_hash ]]; then
+          echo "No commit found for tag ${tag} in paths: ${paths//$'\n'/ }" >&2
+          exit 1
+        fi
+        echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
+    - name: Set image refs
+      id: set_image_refs
+      env:
+        commit_hash: ${{ steps.find_latest_commit.outputs.commit_hash }}
+        image_name: ${{ steps.set_image_name.outputs.image_name }}
+        tag: ${{ inputs.tag }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        old_image_ref="${image_name}:git.${commit_hash}"
+        new_image_ref="${image_name}:${tag}"
+        echo "old_image_ref=${old_image_ref}" >> "$GITHUB_OUTPUT"
+        echo "new_image_ref=${new_image_ref}" >> "$GITHUB_OUTPUT"
+    - name: Authenticate with AWS OIDC
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        mask-aws-account-id: false
+        role-session-name: GitHub_to_AWS_via_FederatedOIDC
+        role-to-assume: ${{ inputs.role_to_assume }}
+    - name: Login to ECR
+      env:
+        AWS_REGION: ${{ inputs.aws_region }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        aws ecr get-login-password | skopeo login --username AWS --password-stdin "${registry_host}"
+    - name: Copy image to new tag
+      env:
+        new_image_ref: ${{ steps.set_image_refs.outputs.new_image_ref }}
+        old_image_ref: ${{ steps.set_image_refs.outputs.old_image_ref }}
+        push: ${{ inputs.push }}
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        if [[ $push = true ]]; then
+          skopeo copy "docker://${old_image_ref}" "docker://${new_image_ref}"
+        else
+          skopeo inspect "docker://${new_image_ref}"
+        fi
