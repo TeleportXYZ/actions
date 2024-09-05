@@ -1,0 +1,166 @@
+name: Deploy ECS Service
+description: |
+  Deploys a service to ECS by updating its task
+  definition to use a new image tag. This requires the service to already be
+  defined e.g. by Terraform. Can also be used to update an EventBridge
+  Scheduler scheduled task instead of an ECS service.
+
+  Requires these job permissions for AWS credentials to work via OIDC:
+    permissions:
+      id-token: write
+      contents: read
+
+inputs:
+  aws_region:
+    description: name of the AWS region being used (e.g. us-east-1)
+    required: true
+    type: string
+  ecs_cluster:
+    description: name of the ECS cluster hosting the service
+    required: true
+    type: string
+  ecs_service:
+    default: ""
+    description: >-
+      name of the ECS service to deploy; if unset, the task definition will
+      be registered but no service deployment will be started
+    required: false
+    type: string
+  ecs_task_definition:
+    description: name of the ECS task definition to update
+    required: true
+    type: string
+  image_name:
+    description: Docker image name (registry/repository)
+    required: true
+    type: string
+  image_tag:
+    description: Docker image tag
+    required: true
+    type: string
+  role_to_assume:
+    description: full ARN of the IAM role to assume
+    required: true
+    type: string
+  runs_on:
+    default: ubuntu-latest
+    description: GitHub Actions runner to use for the job
+    required: false
+    type: string
+  scheduler_group_name:
+    default: ""
+    description: >-
+      EventBridge Scheduler schedule group (for scheduled tasks); defaults
+      to scheduler_schedule_name if unset
+    required: false
+    type: string
+  scheduler_schedule_name:
+    default: ""
+    description: >-
+      EventBridge Scheduler schedule name (for scheduled tasks); usually
+      this is mutually exclusive with ecs_service
+    required: false
+    type: string
+  slack_webhook:
+    description: if set, send a Slack notification to this webhook
+    required: false
+  ssm_image_parameter:
+    default: ""
+    description: if set, store the updated image ref in the named SSM parameter
+    required: false
+    type: string
+  wait_for_stable:
+    default: true
+    description: if set, wait for the service to become stable before completing
+    required: false
+    type: boolean
+  wait_for_minutes:
+    default: 10
+    description: if wait_for_stable is true, then wait up to this many minutes
+    required: false
+    type: number
+
+runs:
+  using: "composite"
+  steps:
+    - id: set_env
+      env:
+        AWS_REGION: ${{ inputs.aws_region }}
+        image_ref: "${{ inputs.image_name }}:${{ inputs.image_tag }}"
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        echo >> "$GITHUB_ENV" <<EOF
+        AWS_REGION=${AWS_REGION}
+        image_ref=${image_ref}
+        EOF
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHub_to_AWS_via_FederatedOIDC
+        role-to-assume: ${{ inputs.role_to_assume }}
+    - id: get_caller_identity
+      shell: bash
+      run: aws sts get-caller-identity
+    - name: Get current task definition
+      env:
+        ecs_task_definition: ${{ inputs.ecs_task_definition }}
+      shell: bash
+      run: |
+        aws ecs describe-task-definition --task-definition "${ecs_task_definition}" --query taskDefinition > task-definition.json
+    - name: Render updated task definition
+      id: render_task_def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        container-name: main
+        environment-variables: |
+          VERSION=${{ inputs.image_tag }}
+        image: ${{ env.image_ref }}
+        task-definition: task-definition.json
+    - name: Deploy updated task definition
+      id: deploy_task_def
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+      with:
+        cluster: ${{ inputs.ecs_cluster }}
+        service: ${{ inputs.ecs_service }}
+        task-definition: ${{ steps.render_task_def.outputs.task-definition }}
+        wait-for-minutes: ${{ inputs.wait_for_minutes }}
+        wait-for-service-stability: ${{ inputs.wait_for_stable }}
+    - name: Update scheduled task
+      if: inputs.scheduler_schedule_name
+      env:
+        group_name: ${{ inputs.scheduler_group_name }}
+        sched_name: ${{ inputs.scheduler_schedule_name }}
+        task_def_arn: ${{ steps.deploy_task_def.outputs.task-definition-arn }}
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        group_name="${group_name:-${sched_name}}"
+        sched_file=$(mktemp)
+        aws scheduler get-schedule --group-name "${group_name}" --name "${sched_name}" > "${sched_file}"
+        update_file=$(mktemp)
+        jq '.Target.EcsParameters.TaskDefinitionArn = $ENV.task_def_arn
+          | del(.Arn)
+          | del(.CreationDate)
+          | del(.LastModificationDate)' "${sched_file}" > "${update_file}"
+        aws scheduler update-schedule --cli-input-json "file://${update_file}"
+    - name: Update image parameter
+      if: inputs.ssm_image_parameter
+      env:
+        ssm_image_parameter: ${{ inputs.ssm_image_parameter }}
+      shell: bash
+      run: |
+        aws ssm put-parameter \
+          --name "${ssm_image_parameter}" \
+          --type String \
+          --value "${image_ref}" \
+          --overwrite
+    - name: Send Slack notification
+      if: always() && inputs.ecs_service && inputs.slack_webhook
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_COLOR: ${{ job.status }}
+        SLACK_MESSAGE: Deployment to ${{ inputs.ecs_cluster }}/${{ inputs.ecs_service }} (${{ job.status }})
+        SLACK_WEBHOOK: ${{ inputs.slack_webhook }}
