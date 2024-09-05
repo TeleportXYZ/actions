@@ -1,0 +1,173 @@
+name: Set Microservice Variables
+description: |
+  Sets some commonly useful variables for the microservice-oriented GitHub
+  Actions workflows
+
+inputs:
+  dev_account_id:
+    type: string
+    required: true
+    description: AWS account ID for the DEV environment
+  dev_account_name:
+    type: string
+    required: true
+    description: short name of the AWS account for the DEV environment
+  dev_ecs_cluster:
+    type: string
+    required: false
+    default: ecs
+    description: short name of the ECS cluster for the DEV environment
+  dev_environment:
+    type: string
+    required: false
+    default: dev
+    description: short name of the DEV environment
+  dev_region:
+    type: string
+    required: true
+    description: AWS region for the DEV environment
+  dev_short_region:
+    type: string
+    required: true
+    description: short name of the AWS region for the DEV environment
+  ecs_service:
+    type: string
+    required: true
+    description: short name of the ECS service
+  force_prod_deploy:
+    type: boolean
+    required: false
+    default: false
+    description: deploy to PROD even if the image tag is not a release
+  image_account_id:
+    type: string
+    required: true
+    description: AWS account ID for the ECR image repository
+  image_region:
+    type: string
+    required: true
+    description: AWS region for the ECR image repository
+  image_short_region:
+    type: string
+    required: true
+    description: short name of the AWS region for the ECR image repository
+  prod_account_id:
+    type: string
+    required: true
+    description: AWS account ID for the PROD environment
+  prod_account_name:
+    type: string
+    required: true
+    description: short name of the AWS account for the PROD environment
+  prod_ecs_cluster:
+    type: string
+    required: false
+    default: ecs
+    description: short name of the ECS cluster for the PROD environment
+  prod_region:
+    type: string
+    required: true
+    description: AWS region for the PROD environment
+  prod_short_region:
+    type: string
+    required: true
+    description: short name of the AWS region for the PROD environment
+  runs_on:
+    type: string
+    required: false
+    default: ubuntu-latest
+    description: GitHub Actions runner to use for the job
+  scheduler_group_name:
+    type: string
+    required: false
+    default: ""
+    description: >-
+      if the service has an associated scheduled task in EventBridge
+      Scheduler, this is the short name of the schedule group, which is
+      required if scheduler_schedule_name is set
+  scheduler_schedule_name:
+    type: string
+    required: false
+    default: ""
+    description: >-
+      if the service has an associated scheduled task in EventBridge
+      Scheduler, this is the short name of the schedule
+outputs:
+  dev_role:
+    value: ${{ steps.main.outputs.dev_role }}
+  dev_ecs_cluster:
+    value: ${{ steps.main.outputs.dev_ecs_cluster }}
+  dev_ecs_service:
+    value: ${{ steps.main.outputs.dev_ecs_service }}
+  dev_ssm_image_parameter:
+    value: ${{ steps.main.outputs.dev_ssm_image_parameter }}
+  dev_scheduler_group_name:
+    value: ${{ steps.main.outputs.dev_scheduler_group_name }}
+  dev_scheduler_image_param:
+    value: ${{ steps.main.outputs.dev_scheduler_image_param }}
+  dev_scheduler_schedule_name:
+    value: ${{ steps.main.outputs.dev_scheduler_schedule_name }}
+  image_role:
+    value: ${{ steps.main.outputs.image_role }}
+  image_registry:
+    value: ${{ steps.main.outputs.image_registry }}
+  prod_role:
+    value: ${{ steps.main.outputs.prod_role }}
+  prod_ecs_cluster:
+    value: ${{ steps.main.outputs.prod_ecs_cluster }}
+  prod_ecs_service:
+    value: ${{ steps.main.outputs.prod_ecs_service }}
+  prod_ssm_image_parameter:
+    value: ${{ steps.main.outputs.prod_ssm_image_parameter }}
+  prod_scheduler_group_name:
+    value: ${{ steps.main.outputs.prod_scheduler_group_name }}
+  prod_scheduler_image_param:
+    value: ${{ steps.main.outputs.prod_scheduler_image_param }}
+  prod_scheduler_schedule_name:
+    value: ${{ steps.main.outputs.prod_scheduler_schedule_name }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: main
+      env:
+        dev_account_id: ${{ inputs.dev_account_id }}
+        dev_account_name: ${{ inputs.dev_account_name }}
+        dev_ecs_cluster: "dec-${{ inputs.dev_account_name }}-${{ inputs.dev_environment }}-${{ inputs.dev_ecs_cluster }}-${{ inputs.dev_short_region }}"
+        dev_ecs_service: "dec-${{ inputs.dev_account_name }}-${{ inputs.dev_environment }}-${{ inputs.ecs_service }}-${{ inputs.dev_short_region }}"
+        dev_environment: ${{ inputs.dev_environment }}
+        dev_scheduler_group_name: "dec-${{ inputs.dev_account_name }}-${{ inputs.dev_environment }}-${{ inputs.scheduler_group_name }}-${{ inputs.dev_short_region }}"
+        dev_scheduler_schedule_name: "dec-${{ inputs.dev_account_name }}-${{ inputs.dev_environment }}-${{ inputs.scheduler_schedule_name }}-${{ inputs.dev_short_region }}"
+        dev_short_region: ${{ inputs.dev_short_region }}
+        image_account_id: ${{ inputs.image_account_id }}
+        image_region: ${{ inputs.image_region }}
+        image_short_region: ${{ inputs.image_short_region }}
+        prod_account_id: ${{ inputs.prod_account_id }}
+        prod_account_name: ${{ inputs.prod_account_name }}
+        prod_ecs_cluster: "dec-${{ inputs.prod_account_name }}-prod-${{ inputs.prod_ecs_cluster }}-${{ inputs.prod_short_region }}"
+        prod_ecs_service: "dec-${{ inputs.prod_account_name }}-prod-${{ inputs.ecs_service }}-${{ inputs.prod_short_region }}"
+        prod_scheduler_group_name: "dec-${{ inputs.prod_account_name }}-prod-${{ inputs.scheduler_group_name }}-${{ inputs.prod_short_region }}"
+        prod_scheduler_schedule_name: "dec-${{ inputs.prod_account_name }}-prod-${{ inputs.scheduler_schedule_name }}-${{ inputs.prod_short_region }}"
+        prod_short_region: ${{ inputs.prod_short_region }}
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        echo >> "$GITHUB_OUTPUT" <<EOF
+        dev_ecs_cluster=${dev_ecs_cluster}
+        dev_ecs_service=${dev_ecs_service}
+        dev_role=arn:aws:iam::${dev_account_id}:role/dec-${dev_account_name}-${dev_environment}-gharole-${dev_short_region}
+        dev_scheduler_group_name=${dev_scheduler_group_name}
+        dev_scheduler_image_param=/ecs/${dev_ecs_cluster}/${dev_scheduler_schedule_name}/container-image
+        dev_scheduler_schedule_name=${dev_scheduler_schedule_name}
+        dev_ssm_image_parameter=/ecs/${dev_ecs_cluster}/${dev_ecs_service}/container-image
+        image_role=arn:aws:iam::${image_account_id}:role/dec-shared-gharole-${image_short_region}
+        image_registry=${image_account_id}.dkr.ecr.${image_region}.amazonaws.com
+        prod_ecs_cluster=${prod_ecs_cluster}
+        prod_ecs_service=${prod_ecs_service}
+        prod_role=arn:aws:iam::${prod_account_id}:role/dec-${prod_account_name}-prod-gharole-${prod_short_region}
+        prod_scheduler_group_name=${prod_scheduler_group_name}
+        prod_scheduler_image_param=/ecs/${prod_ecs_cluster}/${prod_scheduler_schedule_name}/container-image
+        prod_scheduler_schedule_name=${prod_scheduler_schedule_name}
+        prod_ssm_image_parameter=/ecs/${prod_ecs_cluster}/${prod_ecs_service}/container-image
+        EOF
