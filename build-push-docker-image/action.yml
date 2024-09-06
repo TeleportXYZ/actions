@@ -1,0 +1,240 @@
+name: Build and Push Docker Image
+description: |
+  Builds a Docker container image and pushes it to AWS Elastic Container Registry (ECR).
+
+  Expects the repository to be checked out with full history for the tag.
+  This can be accomplished with the following checkout step before calling
+  this action:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: "refs/tags/TAG"
+
+  Requires these job permissions for AWS credentials to work via OIDC:
+    permissions:
+      id-token: write
+      contents: read
+
+inputs:
+  aws_region:
+    required: false
+    type: string
+    default: us-west-1
+    description: AWS region for CLI commands (such as ECR login)
+  build_args:
+    required: false
+    type: string
+    default: ""
+    description: newline-delimited list of Docker build args (as "key=value")
+  context_dir:
+    required: false
+    type: string
+    default: "."
+    description: context directory which is passed to docker build
+  docker_file:
+    required: false
+    type: string
+    default: Dockerfile
+    description: override Dockerfile name
+  git_ref:
+    required: false
+    type: string
+    default: ""
+    description: git ref (branch, tag, commit) to build (defaults to caller ref)
+  image_prefix:
+    required: false
+    type: string
+    default: ""
+    description: prefix for image name
+  image_registry:
+    required: true
+    type: string
+    description: Docker/OCI registry to host the image (hostname and optional path)
+  image_tag:
+    required: false
+    type: string
+    default: ""
+    description: image tag (e.g. build date, commit, version, variant)
+  microservice:
+    required: true
+    type: string
+    description: name of the application
+  microservice_path:
+    required: true
+    type: string
+    description: path within the caller's Git repo which contains the Dockerfile
+  paths:
+    required: false
+    type: string
+    default: ""
+    description: list of path globs to find latest commit (one per line; default is no path restriction)
+  push:
+    required: false
+    type: boolean
+    default: true
+    description: whether to push the built image to GHCR (true) or simply build it (false)
+  role_to_assume:
+    required: false
+    type: string
+    description: ARN of the AWS IAM role to assume via OIDC for CLI commands
+outputs:
+  image_name:
+    value: ${{ steps.set_image_name.outputs.image_name }}
+    description: the full name of the image, including registry but excluding tag
+  image_tag:
+    value: ${{ steps.set_image_tag.outputs.image_tag }}
+    description: the tag of the image, identical to image_tag input if provided
+  release_tag:
+    value: ${{ steps.set_image_tag.outputs.release_tag }}
+    description: if true, the tag is a release version tag (vX.Y.Z) and not a pseudo-version tag or provided as an input
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set created_date
+      id: set_created_date
+      shell: bash
+      run: |
+        echo "created_date=$(date -u -Iseconds)" >> "$GITHUB_OUTPUT"
+
+    - name: Set commit_hash
+      id: set_commit_hash
+      env:
+        paths: ${{ inputs.paths }}
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        set -f # disables globbing after variable expansion
+        IFS=$'\n'
+        commit_hash=$(git log --pretty=format:%H --max-count=1 HEAD -- ${paths})
+        unset IFS
+        echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
+
+    - name: Set image_tag
+      id: set_image_tag
+      env:
+        commit_hash: ${{ steps.set_commit_hash.outputs.commit_hash }}
+        image_tag: ${{ inputs.image_tag }}
+      shell: bash
+      run: |
+        # pseudo-version algorithm based on https://go.dev/ref/mod#pseudo-versions
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        # if an image tag was given, use it
+        if [[ -n ${image_tag:-} ]]; then
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        short_hash=${commit_hash::12}
+        date_input="-d @"
+        if [[ $(uname -s) = "Darwin" ]]; then date_input="-r "; fi
+        commit_timestamp=$(date -u ${date_input}$(git show -s --format=%ct) +%Y%m%d%H%M%S)
+        # find the most recent tag that looks like a version (glob not regex)
+        git_describe=$(git describe --long --tags --match='v[0-9]*.[0-9]*.[0-9]*' --abbrev=12 || echo "v0.0.0-9999-${short_hash}")
+        # the result will be {tag}-{commits_since_tag}-{short_hash}
+        git_tag=${git_describe%-*-*}
+        trailer=${git_describe:${#git_tag}+1}
+        commits_since_tag=${trailer%%-*}
+        # parse the semantic versioning components out of the git tag
+        semver=${git_tag#v}
+        prerelease=${semver#*-}
+        if [[ $prerelease = $semver ]]; then prerelease=""; fi
+        version=${semver%%-*}
+        major=${version%%.*}
+        minor=${version#*.}
+        minor=${minor%%.*}
+        patch=${version##*.}
+        if [[ $semver = "0.0.0" ]]; then
+          # vX.0.0-yyyymmddhhmmss-abcdefabcdef
+          echo "image_tag=v0.0.0-${commit_timestamp}-${short_hash}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=false" >> "$GITHUB_OUTPUT"
+        elif [[ $commits_since_tag -eq 0 ]]; then
+          # vX.Y.Z or vX.Y.Z-pre
+          echo "image_tag=${git_tag}" >> "$GITHUB_OUTPUT"
+          if [[ -n $prerelease ]]; then
+            echo "release_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_tag=true" >> "$GITHUB_OUTPUT"
+          fi
+        elif [[ -n $prerelease ]]; then
+          # vX.Y.Z-pre.0.yyyymmddhhmmss-abcdefabcdef
+          echo "image_tag=${git_tag}.0.${commit_timestamp}-${short_hash}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=false" >> "$GITHUB_OUTPUT"
+        else
+          # vX.Y.(Z+1)-0.yyyymmddhhmmss-abcdefabcdef
+          echo "image_tag=v${major}.${minor}.$((patch+1))-0.${commit_timestamp}-${short_hash}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set registry_host
+      id: set_registry_host
+      env:
+        image_registry: ${{ inputs.image_registry }}
+      shell: bash
+      run: |
+        echo "registry_host=${image_registry%%/*}" >> "$GITHUB_OUTPUT"
+
+    - name: Set image_name
+      id: set_image_name
+      env:
+        image_name: ${{ inputs.image_registry }}/${{ inputs.image_prefix }}${{ inputs.microservice }}
+      shell: bash
+      run: |
+        echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Docker via Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Authenticate with AWS OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      if: inputs.role_to_assume
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        mask-aws-account-id: false # ECR image name may contain the account ID
+        role-session-name: GitHub_to_AWS_via_FederatedOIDC
+        role-to-assume: ${{ inputs.role_to_assume }}
+
+    - name: Login to ECR
+      env:
+        aws_access_key: ${{ steps.set_aws_access_key.outputs.aws_access_key }}
+        registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
+      if: inputs.push
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.registry_host }}
+
+    - name: Build image and push to registry
+      uses: docker/build-push-action@v6
+      env:
+        build_args: ${{ inputs.build_args }}
+        context_dir: ${{ inputs.context_dir }}
+        created_date: ${{ steps.set_created_date.outputs.created_date }}
+        docker_file: ${{ inputs.docker_file }}
+        image_name: ${{ steps.set_image_name.outputs.image_name }}
+        image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
+        microservice: ${{ inputs.microservice }}
+        microservice_path: ${{ inputs.microservice_path }}
+        push: ${{ inputs.push }}
+        revision: ${{ steps.set_commit_hash.outputs.commit_hash }}
+        source: "https://github.com/${{ github.repository }}"
+      with:
+        build-args: ${{ env.build_args }}
+        context: ${{ env.context_dir }}
+        file: "${{ env.microservice_path }}/${{ env.docker_file }}"
+        labels: |
+          org.opencontainers.image.created=${{ env.created_date }}
+          org.opencontainers.image.revision=${{ env.revision }}
+          org.opencontainers.image.source=${{ env.source }}
+          org.opencontainers.image.title=${{ env.microservice }}
+          org.opencontainers.image.url=https://teleport.xyz/
+          org.opencontainers.image.vendor=Decentralized Engineering Corporation
+          org.opencontainers.image.version=${{ env.image_tag }}
+        no-cache: true
+        pull: true
+        push: ${{ env.push }}
+        tags: |
+          ${{ env.image_name }}:${{ env.image_tag }}
+          ${{ env.image_name }}:git.${{ env.revision }}
