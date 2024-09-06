@@ -47,11 +47,6 @@ inputs:
     description: ARN of the AWS IAM role to assume via OIDC
     required: true
     type: string
-  runs_on:
-    default: 'ubuntu-latest'
-    description: GitHub Actions runner to use
-    required: false
-    type: string
   tag:
     description: Git tag to use as image tag
     required: true
