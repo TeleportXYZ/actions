@@ -135,7 +135,7 @@ runs:
         echo "old_image_ref=${old_image_ref}" >> "$GITHUB_OUTPUT"
         echo "new_image_ref=${new_image_ref}" >> "$GITHUB_OUTPUT"
     - name: Authenticate with AWS OIDC
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: ${{ inputs.aws_region }}
         mask-aws-account-id: false

@@ -91,10 +91,8 @@ runs:
       run: |
         if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
         set -euo pipefail
-        echo >> "$GITHUB_ENV" <<EOF
-        AWS_REGION=${AWS_REGION}
-        image_ref=${image_ref}
-        EOF
+        echo "AWS_REGION=${AWS_REGION}" >> "$GITHUB_ENV"
+        echo "image_ref=${image_ref}" >> "$GITHUB_ENV"
     - uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: ${{ env.AWS_REGION }}

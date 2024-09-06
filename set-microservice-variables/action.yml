@@ -153,7 +153,7 @@ runs:
       run: |
         if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
         set -euo pipefail
-        echo >> "$GITHUB_OUTPUT" <<EOF
+        cat >> "$GITHUB_OUTPUT" <<EOF
         dev_ecs_cluster=${dev_ecs_cluster}
         dev_ecs_service=${dev_ecs_service}
         dev_role=arn:aws:iam::${dev_account_id}:role/dec-${dev_account_name}-${dev_environment}-gharole-${dev_short_region}
