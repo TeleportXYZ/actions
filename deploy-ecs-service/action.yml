@@ -95,15 +95,15 @@ runs:
           --task-definition "${ecs_task_definition}" \
           --query taskDefinition \
           > raw-task-definition.json
-        jq 'del(
-          .compatibilities,
-          .registeredAt,
-          .registeredBy,
-          .requiresAttributes,
-          .revision,
-          .status,
-          .taskDefinitionArn,
-        )' raw-task-definition.json > task-definition.json
+        jq '.
+          | del(.compatibilities)
+          | del(.registeredAt)
+          | del(.registeredBy)
+          | del(.requiresAttributes)
+          | del(.revision)
+          | del(.status)
+          | del(.taskDefinitionArn)
+        ' raw-task-definition.json > task-definition.json
     - name: Render updated task definition
       id: render_task_def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
