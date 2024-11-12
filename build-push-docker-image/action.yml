@@ -188,7 +188,7 @@ runs:
       env:
         aws_access_key: ${{ steps.set_aws_access_key.outputs.aws_access_key }}
         registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
-      if: inputs.push == "true"
+      if: inputs.push == 'true'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.registry_host }}

@@ -129,7 +129,7 @@ runs:
     - name: Login to ECR
       env:
         registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
-      if: inputs.push == "true"
+      if: inputs.push == 'true'
       uses: docker/login-action@v3
       with:
         registry: ${{ inputs.image_registry }}
