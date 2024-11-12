@@ -1,0 +1,166 @@
+name: Build and Push Docker Image
+description: |
+  Builds a Docker container image and pushes it to AWS Elastic Container Registry (ECR).
+  Version 2: Simplified image tag to [prefix]date-commit by default.
+
+  Requires these job permissions for AWS credentials to work via OIDC:
+    permissions:
+      id-token: write
+      contents: read
+
+inputs:
+  aws_region:
+    required: false
+    default: us-west-1
+    description: AWS region for CLI commands (such as ECR login)
+  build_args:
+    required: false
+    default: ""
+    description: newline-delimited list of Docker build args (as "key=value")
+  context_dir:
+    required: false
+    default: "."
+    description: context directory which is passed to docker build
+  docker_file:
+    required: false
+    default: Dockerfile
+    description: override Dockerfile name or path
+  git_ref:
+    required: false
+    default: ""
+    description: git ref (branch, tag, commit) to build (defaults to caller ref)
+  image_registry:
+    required: true
+    description: Docker/OCI container image registry (ECR registry host name)
+  image_repository:
+    required: true
+    description: repository for the image, relative to image_registry
+  image_tag:
+    required: false
+    default: ""
+    description: override generated image tag
+  image_tag_prefix:
+    required: false
+    default: ""
+    description: if using generated image tag, prefix with this value
+  microservice:
+    required: true
+    description: name of the microservice, used as metadata on the image
+  push:
+    required: false
+    default: "true"
+    description: whether to push the built image to ECR (true) or simply build it (false)
+  role_to_assume:
+    required: true
+    description: ARN of the AWS IAM role to assume via OIDC for CLI commands
+outputs:
+  image_name:
+    value: ${{ steps.set_image_name.outputs.image_name }}
+    description: the full name of the image, including registry but excluding tag
+  image_tag:
+    value: ${{ steps.set_image_tag.outputs.image_tag }}
+    description: the tag of the image, identical to image_tag input if provided
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set created_date
+      id: set_created_date
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        created_date=$(date -u -Iseconds)
+        echo "created_date=${created_date}" >> "$GITHUB_OUTPUT"
+        created_basic_date=${created_date/T/}
+        created_basic_date=${created_basic_date/Z/}
+        created_basic_date=${created_basic_date//-/}
+        created_basic_date=${created_basic_date//:/}
+        created_basic_date=${created_basic_date%%[+-]*}
+        echo "created_basic_date=${created_basic_date}" >> "$GITHUB_OUTPUT"
+
+    - name: Set commit_hash
+      id: set_commit_hash
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        echo "commit_hash=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Set image_tag
+      id: set_image_tag
+      env:
+        commit_hash: ${{ steps.set_commit_hash.outputs.commit_hash }}
+        created_basic_date: ${{ steps.set_created_date.outputs.created_basic_date }}
+        image_tag: ${{ inputs.image_tag }}
+        image_tag_prefix: ${{ inputs.image_tag_prefix }}
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        # if an image tag was given, use it
+        if [[ -n ${image_tag:-} ]]; then
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        short_hash=${commit_hash::12}
+        echo "image_tag=${image_tag_prefix:-}${created_basic_date}-${short_hash}"
+
+    - name: Set image_name
+      id: set_image_name
+      env:
+        image_name: ${{ inputs.image_registry }}/${{ inputs.image_repository }}
+      shell: bash
+      run: |
+        echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Docker via Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Authenticate with AWS OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ inputs.aws_region }}
+        mask-aws-account-id: false # ECR image name may contain the account ID
+        role-session-name: GitHub_to_AWS_via_FederatedOIDC
+        role-to-assume: ${{ inputs.role_to_assume }}
+
+    - name: Login to ECR
+      env:
+        registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
+      if: inputs.push == "true"
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.image_registry }}
+
+    - name: Build image and push to registry
+      uses: docker/build-push-action@v6
+      env:
+        build_args: ${{ inputs.build_args }}
+        commit_hash: ${{ steps.set_commit_hash.outputs.commit_hash }}
+        context_dir: ${{ inputs.context_dir }}
+        created_date: ${{ steps.set_created_date.outputs.created_date }}
+        docker_file: ${{ inputs.docker_file }}
+        image_name: ${{ steps.set_image_name.outputs.image_name }}
+        image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
+        microservice: ${{ inputs.microservice }}
+        push: ${{ inputs.push }}
+        source: "https://github.com/${{ github.repository }}"
+      with:
+        build-args: ${{ env.build_args }}
+        context: ${{ env.context_dir }}
+        file: "${{ env.docker_file }}"
+        labels: |
+          org.opencontainers.image.created=${{ env.created_date }}
+          org.opencontainers.image.revision=${{ env.commit_hash }}
+          org.opencontainers.image.source=${{ env.source }}
+          org.opencontainers.image.title=${{ env.microservice }}
+          org.opencontainers.image.url=https://teleport.xyz/
+          org.opencontainers.image.vendor=Decentralized Engineering Corporation
+          org.opencontainers.image.version=${{ env.image_tag }}
+        no-cache: true
+        pull: true
+        push: ${{ env.push }}
+        tags: |
+          ${{ env.image_name }}:${{ env.image_tag }}
