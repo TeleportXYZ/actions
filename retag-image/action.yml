@@ -25,39 +25,35 @@ inputs:
   aws_account_id:
     description: AWS account ID hosting the ECR repository
     required: true
-    type: string
   aws_region:
     description: AWS region hosting the ECR repository
     required: true
-    type: string
   image_repository:
     description: name of the image repository (image name excluding registry)
     required: true
-    type: string
   paths:
     description: paths and path globs to examine to find the most recent commit, one per line
     required: true
-    type: string
   push:
-    default: true
+    default: "true"
     description: whether to push the new image tag to ECR; if false, the image tag will only be inspected
     required: false
-    type: boolean
   role_to_assume:
     description: ARN of the AWS IAM role to assume via OIDC
     required: true
-    type: string
   tag:
     description: Git tag to use as image tag
     required: true
-    type: string
 
 outputs:
   image_name:
+    description: image name (registry and repository) without tag
     value: ${{ steps.set_image_name.outputs.image_name }}
   image_tag:
+    description: image tag (echoed from inputs)
     value: ${{ inputs.tag }}
   release_tag:
+    description: whether the tag is considered a release version ("true" or "false")
     value: ${{ steps.check_release_tag.outputs.release_tag }}
 
 runs:

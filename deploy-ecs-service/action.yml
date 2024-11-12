@@ -14,48 +14,39 @@ inputs:
   aws_region:
     description: name of the AWS region being used (e.g. us-east-1)
     required: true
-    type: string
   ecs_cluster:
     description: name of the ECS cluster hosting the service
     required: true
-    type: string
   ecs_service:
     default: ""
     description: >-
       name of the ECS service to deploy; if unset, the task definition will
       be registered but no service deployment will be started
     required: false
-    type: string
   ecs_task_definition:
     description: name of the ECS task definition to update
     required: true
-    type: string
   image_name:
     description: Docker image name (registry/repository)
     required: true
-    type: string
   image_tag:
     description: Docker image tag
     required: true
-    type: string
   role_to_assume:
     description: full ARN of the IAM role to assume
     required: true
-    type: string
   scheduler_group_name:
     default: ""
     description: >-
       EventBridge Scheduler schedule group (for scheduled tasks); defaults
       to scheduler_schedule_name if unset
     required: false
-    type: string
   scheduler_schedule_name:
     default: ""
     description: >-
       EventBridge Scheduler schedule name (for scheduled tasks); usually
       this is mutually exclusive with ecs_service
     required: false
-    type: string
   slack_webhook:
     description: if set, send a Slack notification to this webhook
     required: false
@@ -63,17 +54,14 @@ inputs:
     default: ""
     description: if set, store the updated image ref in the named SSM parameter
     required: false
-    type: string
   wait_for_stable:
-    default: true
+    default: "true"
     description: if set, wait for the service to become stable before completing
     required: false
-    type: boolean
   wait_for_minutes:
-    default: 10
+    default: "10"
     description: if wait_for_stable is true, then wait up to this many minutes
     required: false
-    type: number
 
 runs:
   using: "composite"
@@ -101,7 +89,21 @@ runs:
         ecs_task_definition: ${{ inputs.ecs_task_definition }}
       shell: bash
       run: |
-        aws ecs describe-task-definition --task-definition "${ecs_task_definition}" --query taskDefinition > task-definition.json
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        aws ecs describe-task-definition \
+          --task-definition "${ecs_task_definition}" \
+          --query taskDefinition \
+          > raw-task-definition.json
+        jq 'del(
+          .compatibilities,
+          .registeredAt,
+          .registeredBy,
+          .requiresAttributes,
+          .revision,
+          .status,
+          .taskDefinitionArn,
+        )' raw-task-definition.json > task-definition.json
     - name: Render updated task definition
       id: render_task_def
       uses: aws-actions/amazon-ecs-render-task-definition@v1

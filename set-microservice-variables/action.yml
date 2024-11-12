@@ -5,75 +5,54 @@ description: |
 
 inputs:
   dev_account_id:
-    type: string
     required: true
     description: AWS account ID for the DEV environment
   dev_account_name:
-    type: string
     required: true
     description: short name of the AWS account for the DEV environment
   dev_ecs_cluster:
-    type: string
     required: false
     default: ecs
     description: short name of the ECS cluster for the DEV environment
   dev_environment:
-    type: string
     required: false
     default: dev
     description: short name of the DEV environment
   dev_region:
-    type: string
     required: true
     description: AWS region for the DEV environment
   dev_short_region:
-    type: string
     required: true
     description: short name of the AWS region for the DEV environment
   ecs_service:
-    type: string
     required: true
     description: short name of the ECS service
-  force_prod_deploy:
-    type: boolean
-    required: false
-    default: false
-    description: deploy to PROD even if the image tag is not a release
   image_account_id:
-    type: string
     required: true
     description: AWS account ID for the ECR image repository
   image_region:
-    type: string
     required: true
     description: AWS region for the ECR image repository
   image_short_region:
-    type: string
     required: true
     description: short name of the AWS region for the ECR image repository
   prod_account_id:
-    type: string
     required: true
     description: AWS account ID for the PROD environment
   prod_account_name:
-    type: string
     required: true
     description: short name of the AWS account for the PROD environment
   prod_ecs_cluster:
-    type: string
     required: false
     default: ecs
     description: short name of the ECS cluster for the PROD environment
   prod_region:
-    type: string
     required: true
     description: AWS region for the PROD environment
   prod_short_region:
-    type: string
     required: true
     description: short name of the AWS region for the PROD environment
   scheduler_group_name:
-    type: string
     required: false
     default: ""
     description: >-
@@ -81,7 +60,6 @@ inputs:
       Scheduler, this is the short name of the schedule group, which is
       required if scheduler_schedule_name is set
   scheduler_schedule_name:
-    type: string
     required: false
     default: ""
     description: >-
@@ -89,36 +67,52 @@ inputs:
       Scheduler, this is the short name of the schedule
 outputs:
   dev_role:
+    description: ARN of the IAM role to assume when deploying the ECS service to dev
     value: ${{ steps.main.outputs.dev_role }}
   dev_ecs_cluster:
+    description: full name of the dev ECS cluster
     value: ${{ steps.main.outputs.dev_ecs_cluster }}
   dev_ecs_service:
+    description: full name of the dev ECS service
     value: ${{ steps.main.outputs.dev_ecs_service }}
   dev_ssm_image_parameter:
+    description: full name of the SSM parameter storing the container image deployed to dev
     value: ${{ steps.main.outputs.dev_ssm_image_parameter }}
   dev_scheduler_group_name:
+    description: full name of the dev EventBridge scheduler group, if scheduled task is enabled
     value: ${{ steps.main.outputs.dev_scheduler_group_name }}
   dev_scheduler_image_param:
+    description: full name of the SSM parameter storing the container image scheduled in dev
     value: ${{ steps.main.outputs.dev_scheduler_image_param }}
   dev_scheduler_schedule_name:
+    description: full name of the dev EventBridge scheduler, if scheduled task is enabled
     value: ${{ steps.main.outputs.dev_scheduler_schedule_name }}
   image_role:
+    description: ARN of the IAM role to assume when pushing the image to ECR
     value: ${{ steps.main.outputs.image_role }}
   image_registry:
+    description: ECS container registry hostname to push the image to
     value: ${{ steps.main.outputs.image_registry }}
   prod_role:
+    description: ARN of the IAM role to assume when deploying the ECS service to prod
     value: ${{ steps.main.outputs.prod_role }}
   prod_ecs_cluster:
+    description: full name of the prod ECS cluster
     value: ${{ steps.main.outputs.prod_ecs_cluster }}
   prod_ecs_service:
+    description: full name of the prod ECS service
     value: ${{ steps.main.outputs.prod_ecs_service }}
   prod_ssm_image_parameter:
+    description: full name of the SSM parameter storing the container image deployed to dev
     value: ${{ steps.main.outputs.prod_ssm_image_parameter }}
   prod_scheduler_group_name:
+    description: full name of the prod EventBridge scheduler group, if scheduled task is enabled
     value: ${{ steps.main.outputs.prod_scheduler_group_name }}
   prod_scheduler_image_param:
+    description: full name of the SSM parameter storing the container image scheduled in prod
     value: ${{ steps.main.outputs.prod_scheduler_image_param }}
   prod_scheduler_schedule_name:
+    description: full name of the prod EventBridge scheduler, if scheduled task is enabled
     value: ${{ steps.main.outputs.prod_scheduler_schedule_name }}
 
 runs:

@@ -18,64 +18,51 @@ description: |
 inputs:
   aws_region:
     required: false
-    type: string
     default: us-west-1
     description: AWS region for CLI commands (such as ECR login)
   build_args:
     required: false
-    type: string
     default: ""
     description: newline-delimited list of Docker build args (as "key=value")
   context_dir:
     required: false
-    type: string
     default: "."
     description: context directory which is passed to docker build
   docker_file:
     required: false
-    type: string
     default: Dockerfile
     description: override Dockerfile name
   git_ref:
     required: false
-    type: string
     default: ""
     description: git ref (branch, tag, commit) to build (defaults to caller ref)
   image_prefix:
     required: false
-    type: string
     default: ""
     description: prefix for image name
   image_registry:
     required: true
-    type: string
     description: Docker/OCI registry to host the image (hostname and optional path)
   image_tag:
     required: false
-    type: string
     default: ""
     description: image tag (e.g. build date, commit, version, variant)
   microservice:
     required: true
-    type: string
     description: name of the application
   microservice_path:
     required: true
-    type: string
     description: path within the caller's Git repo which contains the Dockerfile
   paths:
     required: false
-    type: string
     default: ""
     description: list of path globs to find latest commit (one per line; default is no path restriction)
   push:
     required: false
-    type: boolean
-    default: true
+    default: "true"
     description: whether to push the built image to GHCR (true) or simply build it (false)
   role_to_assume:
     required: false
-    type: string
     description: ARN of the AWS IAM role to assume via OIDC for CLI commands
 outputs:
   image_name:
@@ -201,7 +188,7 @@ runs:
       env:
         aws_access_key: ${{ steps.set_aws_access_key.outputs.aws_access_key }}
         registry_host: ${{ steps.set_registry_host.outputs.registry_host }}
-      if: inputs.push
+      if: inputs.push == "true"
       uses: docker/login-action@v3
       with:
         registry: ${{ env.registry_host }}
