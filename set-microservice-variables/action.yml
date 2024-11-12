@@ -1,7 +1,7 @@
 name: Set Microservice Variables
 description: |
   Sets some commonly useful variables for the microservice-oriented GitHub
-  Actions workflows
+  Actions workflows (version 1: dev and prod together)
 
 inputs:
   dev_account_id:

@@ -1,0 +1,110 @@
+name: Set Microservice Variables
+description: |
+  Sets some commonly useful variables for the microservice-oriented GitHub
+  Actions workflows (version 2: single environment at a time)
+
+inputs:
+  ecs_service:
+    required: true
+    description: short name of the ECS service
+  env_account_id:
+    required: true
+    description: AWS account ID for the target environment
+  env_account_name:
+    required: true
+    description: short name of the AWS account for the target environment
+  env_ecs_cluster:
+    required: false
+    default: ecs
+    description: short name of the ECS cluster for the target environment
+  env_region:
+    required: true
+    description: AWS region for the target environment
+  env_short_name:
+    required: true
+    description: short name of the target environment
+  env_short_region:
+    required: true
+    description: short name of the AWS region for the target environment
+  image_account_id:
+    required: true
+    description: AWS account ID for the ECR image repository
+  image_region:
+    required: true
+    description: AWS region for the ECR image repository
+  image_short_region:
+    required: true
+    description: short name of the AWS region for the ECR image repository
+  scheduler_group_name:
+    required: false
+    default: ""
+    description: >-
+      if the service has an associated scheduled task in EventBridge
+      Scheduler, this is the short name of the schedule group, which is
+      required if scheduler_schedule_name is set
+  scheduler_schedule_name:
+    required: false
+    default: ""
+    description: >-
+      if the service has an associated scheduled task in EventBridge
+      Scheduler, this is the short name of the schedule
+outputs:
+  deploy_role:
+    description: ARN of the IAM role to assume when deploying the ECS service and scheduled task (if any)
+    value: ${{ steps.main.outputs.deploy_role }}
+  ecs_cluster:
+    description: full name of the ECS cluster
+    value: ${{ steps.main.outputs.ecs_cluster }}
+  ecs_image_param:
+    description: full name of the SSM parameter storing the container image deployed to ECS
+    value: ${{ steps.main.outputs.ecs_image_param }}
+  ecs_service:
+    description: full name of the ECS service
+    value: ${{ steps.main.outputs.ecs_service }}
+  image_role:
+    description: ARN of the IAM role to assume when pushing the image to ECR
+    value: ${{ steps.main.outputs.image_role }}
+  image_registry:
+    description: ECS container registry hostname to push the image to
+    value: ${{ steps.main.outputs.image_registry }}
+  scheduler_group_name:
+    description: full name of the EventBridge scheduler group, if scheduled task is enabled
+    value: ${{ steps.main.outputs.scheduler_group_name }}
+  scheduler_image_param:
+    description: full name of the SSM parameter storing the container image scheduled to run
+    value: ${{ steps.main.outputs.scheduler_image_param }}
+  scheduler_schedule_name:
+    description: full name of the EventBridge scheduler, if scheduled task is enabled
+    value: ${{ steps.main.outputs.scheduler_schedule_name }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: main
+      env:
+        ecs_cluster: "dec-${{ inputs.env_account_name }}-${{ inputs.env_short_name }}-${{ inputs.env_ecs_cluster }}-${{ inputs.env_short_region }}"
+        ecs_service: "dec-${{ inputs.env_account_name }}-${{ inputs.env_short_name }}-${{ inputs.ecs_service }}-${{ inputs.env_short_region }}"
+        env_account_id: ${{ inputs.env_account_id }}
+        env_account_name: ${{ inputs.env_account_name }}
+        env_short_name: ${{ inputs.env_short_name }}
+        env_short_region: ${{ inputs.env_short_region }}
+        image_account_id: ${{ inputs.image_account_id }}
+        image_region: ${{ inputs.image_region }}
+        image_short_region: ${{ inputs.image_short_region }}
+        scheduler_group_name: "dec-${{ inputs.env_account_name }}-${{ inputs.env_short_name }}-${{ inputs.scheduler_group_name }}-${{ inputs.env_short_region }}"
+        scheduler_schedule_name: "dec-${{ inputs.env_account_name }}-${{ inputs.env_short_name }}-${{ inputs.scheduler_schedule_name }}-${{ inputs.env_short_region }}"
+      shell: bash
+      run: |
+        if [[ -n $RUNNER_DEBUG ]]; then set -x; fi
+        set -euo pipefail
+        cat >> "$GITHUB_OUTPUT" <<EOF
+        deploy_role=arn:aws:iam::${env_account_id}:role/dec-${env_account_name}-${env_short_name}-gharole-${env_short_region}
+        ecs_cluster=${ecs_cluster}
+        ecs_image_param=/ecs/${ecs_cluster}/${ecs_service}/container-image
+        ecs_service=${ecs_service}
+        image_role=arn:aws:iam::${image_account_id}:role/dec-shared-gharole-${image_short_region}
+        image_registry=${image_account_id}.dkr.ecr.${image_region}.amazonaws.com
+        scheduler_group_name=${scheduler_group_name}
+        scheduler_image_param=/ecs/${ecs_cluster}/${scheduler_schedule_name}/container-image
+        scheduler_schedule_name=${scheduler_schedule_name}
+        EOF
