@@ -104,7 +104,7 @@ runs:
           exit 0
         fi
         short_hash=${commit_hash::12}
-        echo "image_tag=${image_tag_prefix:-}${created_basic_date}-${short_hash}"
+        echo "image_tag=${image_tag_prefix:-}${created_basic_date}-${short_hash}" >> "$GITHUB_OUTPUT"
 
     - name: Set image_name
       id: set_image_name
